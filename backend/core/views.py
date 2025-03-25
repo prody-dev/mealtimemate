@@ -23,3 +23,35 @@ class ProductoOrdenViewSet(viewsets.ModelViewSet):
     #permission_classes = [IsAuthenticated]
     queryset = ProductoOrden.objects.all()
     serializer_class = ProductoOrdenSerializer
+
+# views.py
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from .models import Orden, ProductoOrden
+from django.db.models import Sum, Count
+from django.utils import timezone
+
+class VentasPorHora(APIView):
+    def get(self, request):
+        # Obtener todas las ordenes junto con las ventas de productos
+        ventas = (
+            ProductoOrden.objects
+            .values('orden__hora_orden', 'producto__categoria__nombre')
+            .annotate(cantidad_vendida=Sum('cantidad'))
+            .order_by('orden__hora_orden')
+        )
+
+        # Formatear los datos para enviar
+        data = {
+            'x': [],  # horas
+            'y': [],  # categorías
+            'z': [],  # cantidades de ventas
+        }
+
+        for venta in ventas:
+            data['x'].append(venta['orden__hora_orden'].strftime('%H:%M'))
+            data['y'].append(venta['producto__categoria__nombre'])
+            data['z'].append(venta['cantidad_vendida'])
+
+        return Response(data)
+

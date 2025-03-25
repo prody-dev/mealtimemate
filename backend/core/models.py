@@ -28,7 +28,7 @@ class ProductoOrden(models.Model):
     producto = models.ForeignKey(Producto, on_delete=models.CASCADE)
     orden = models.ForeignKey(Orden, on_delete=models.CASCADE)
     cantidad = models.PositiveIntegerField()
-    total = models.DecimalField(max_digits=10, decimal_places=2, editable=False)
+    total = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
 
     def save(self, *args, **kwargs):
         self.total = self.cantidad * self.producto.precio
