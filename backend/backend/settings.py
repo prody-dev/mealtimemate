@@ -94,7 +94,7 @@ pymysql.install_as_MySQLdb()
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'mealtime',
+        'NAME': 'mealtime2',
         'USER': 'root',
         'PASSWORD': 'Puebla4990',
         'HOST': 'localhost',
