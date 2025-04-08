@@ -89,14 +89,14 @@ TEMPLATES = [
 import os
 import pymysql
 
+# Asegúrate de que PyMySQL se use como el conector
 pymysql.install_as_MySQLdb()
-
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'mealtime2',
+        'NAME': 'mealtime3',
         'USER': 'root',
-        'PASSWORD': 'Puebla4990',
+        'PASSWORD': '',
         'HOST': 'localhost',
         'PORT': '3306',
     }

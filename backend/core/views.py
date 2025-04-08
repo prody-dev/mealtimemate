@@ -54,6 +54,52 @@ class VentasPorHora(APIView):
             data['z'].append(venta['cantidad_vendida'])
 
         return Response(data)
+    
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from django.db.models import Sum
+from datetime import datetime
+from .models import ProductoOrden
+
+class VentasPorHora2(APIView):
+    def get(self, request):
+        fecha_str = request.GET.get('fecha', None)
+
+        if fecha_str:
+            try:
+                fecha = datetime.strptime(fecha_str, '%d-%m-%Y')
+                fecha_inicio = datetime.combine(fecha.date(), datetime.min.time())
+                fecha_fin = datetime.combine(fecha.date(), datetime.max.time())
+            except ValueError:
+                return Response({'error': 'El formato de fecha es incorrecto. Use dd-mm-YYYY.'}, status=400)
+
+            ventas = (
+                ProductoOrden.objects
+                .filter(orden__fecha_orden__range=(fecha_inicio, fecha_fin))
+                .values('orden__hora_orden', 'producto__categoria__nombre')
+                .annotate(cantidad_vendida=Sum('cantidad'))
+                .order_by('orden__hora_orden')
+            )
+        else:
+            ventas = (
+                ProductoOrden.objects
+                .values('orden__hora_orden', 'producto__categoria__nombre')
+                .annotate(cantidad_vendida=Sum('cantidad'))
+                .order_by('orden__hora_orden')
+            )
+
+        data = {
+            'x': [],
+            'y': [],
+            'z': [],
+        }
+
+        for venta in ventas:
+            data['x'].append(venta['orden__hora_orden'].strftime('%H:%M'))
+            data['y'].append(venta['producto__categoria__nombre'])
+            data['z'].append(venta['cantidad_vendida'])
+
+        return Response(data)
 
 from datetime import time, datetime
 from django.db.models import Avg
@@ -206,7 +252,6 @@ def get_next_monday(today=None):
         today = date.today()
     days_ahead = 0 if today.weekday() == 0 else 7 - today.weekday()
     return today + timedelta(days=days_ahead)
-
 def api_pronostico_dinamico2(request):
     categoria_id = request.GET.get('categoria_id')
     bloque = int(request.GET.get('bloque_horario', 1))
@@ -222,12 +267,9 @@ def api_pronostico_dinamico2(request):
     except Categoria.DoesNotExist:
         return JsonResponse({"error": "Categoría no encontrada"}, status=404)
 
-    # Calcular el próximo lunes
     proximo_lunes = get_next_monday()
-
     hora_inicio, hora_fin = BLOQUES_HORARIOS[bloque]
 
-    # Obtener todas las órdenes de lunes anteriores al próximo lunes
     lunes_pasados = Orden.objects.filter(
         fecha_orden__lt=proximo_lunes,
         fecha_orden__week_day=2,  # Lunes
@@ -240,33 +282,51 @@ def api_pronostico_dinamico2(request):
     producto_ordenes = ProductoOrden.objects.filter(
         orden__in=lunes_pasados,
         producto__in=productos_categoria
-    )
+    ).select_related('orden', 'producto')
 
     ventas = producto_ordenes.aggregate(
-        promedio_ventas=Avg('cantidad'),
         cantidad_total=Sum('cantidad'),
         productoorden_count=Count('id')
     )
 
-    pronostico = ventas['promedio_ventas'] or 0
     cantidad_total = ventas['cantidad_total'] or 0
     productoorden_count = ventas['productoorden_count'] or 0
 
+    # Obtener fechas únicas de las órdenes
+    fechas_unicas = lunes_pasados.values_list('fecha_orden', flat=True).distinct()
+    cantidad_dias = fechas_unicas.count() or 1  # Evitar división por cero
+
+    # Calcular nuevo pronóstico
+    pronostico = cantidad_total / cantidad_dias
     ventas_pronosticadas_redondeadas = math.floor(pronostico) if pronostico % 1 <= 0.50 else math.ceil(pronostico)
 
-    ordenes_info = [
-        {
+    # Agrupar ordenes_involucradas por día
+    ordenes_por_dia = {}
+    for po in producto_ordenes:
+        fecha = po.orden.fecha_orden.strftime("%Y-%m-%d")
+        if fecha not in ordenes_por_dia:
+            ordenes_por_dia[fecha] = {
+                "fecha": fecha,
+                "productoorden_count": 0,
+                "cantidad_total": 0,
+                "ordenes": []
+            }
+
+        ordenes_por_dia[fecha]["productoorden_count"] += 1
+        ordenes_por_dia[fecha]["cantidad_total"] += po.cantidad
+        ordenes_por_dia[fecha]["ordenes"].append({
             "orden_id": po.orden.id,
             "productoorden_id": po.id,
-            "fecha_orden": po.orden.fecha_orden,
             "hora_orden": po.orden.hora_orden.strftime("%H:%M"),
             "producto_id": po.producto.id,
             "producto_nombre": po.producto.nombre,
             "cantidad_vendida": po.cantidad,
             "total_venta": po.total
-        }
-        for po in producto_ordenes
-    ]
+        })
+
+
+    # Convertir dict a lista
+    ordenes_info_agrupadas = list(ordenes_por_dia.values())
 
     return JsonResponse({
         "fecha_pronostico": proximo_lunes.strftime("%Y-%m-%d"),
@@ -279,5 +339,6 @@ def api_pronostico_dinamico2(request):
         "ventas_pronosticadas_redondeadas": ventas_pronosticadas_redondeadas,
         "productoorden_count": productoorden_count,
         "cantidad_total": cantidad_total,
-        "ordenes_involucradas": ordenes_info
+        "cantidad_dias": cantidad_dias,
+        "ordenes_involucradas": ordenes_info_agrupadas
     })
